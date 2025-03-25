@@ -19,23 +19,30 @@ __global__ void appliquer_filtre_bilateral(unsigned char* image, unsigned char* 
         float somme_poids = 0.0f;
         float somme_pixels = 0.0f;
 
-        for (int i = -3; i <= 3; i++) {
-            for (int j = -3; j <= 3; j++) {
-                int x_voisin = x + i;
-                int y_voisin = y + j;
+        // Chaque thread calcule un poids pour un voisin
+        int i = threadIdx.x - 3; // Les indices de la fenêtre sont de -3 à +3 (7x7 voisins)
+        int j = threadIdx.y - 3;
 
-                if (x_voisin >= 0 && x_voisin < largeur && y_voisin >= 0 && y_voisin < hauteur) {
-                    float poids_spatial = expf(-0.5f * (distance_spatiale(x, y, x_voisin, y_voisin) / sigma_spatial) * (distance_spatiale(x, y, x_voisin, y_voisin) / sigma_spatial));
-                    float poids_intensite = expf(-0.5f * (difference_intensite(image, largeur, hauteur, x, y, x_voisin, y_voisin) / sigma_intensite) * (difference_intensite(image, largeur, hauteur, x, y, x_voisin, y_voisin) / sigma_intensite));
-                    float poids = poids_spatial * poids_intensite;
+        if (i >= -3 && i <= 3 && j >= -3 && j <= 3) {
+            int x_voisin = x + i;
+            int y_voisin = y + j;
 
-                    somme_poids += poids;
-                    somme_pixels += image[y_voisin * largeur + x_voisin] * poids;
-                }
+            if (x_voisin >= 0 && x_voisin < largeur && y_voisin >= 0 && y_voisin < hauteur) {
+                // Calcul du poids spatial et du poids d'intensité
+                float poids_spatial = expf(-0.5f * (distance_spatiale(x, y, x_voisin, y_voisin) / sigma_spatial) * (distance_spatiale(x, y, x_voisin, y_voisin) / sigma_spatial));
+                float poids_intensite = expf(-0.5f * (difference_intensite(image, largeur, hauteur, x, y, x_voisin, y_voisin) / sigma_intensite) * (difference_intensite(image, largeur, hauteur, x, y, x_voisin, y_voisin) / sigma_intensite));
+                float poids = poids_spatial * poids_intensite;
+
+                // Accumulation des poids et des pixels
+                atomicAdd(&somme_poids, poids); 
+                atomicAdd(&somme_pixels, image[y_voisin * largeur + x_voisin] * poids); 
             }
         }
 
-        image_filtrée[y * largeur + x] = (unsigned char)(somme_pixels / somme_poids);
+        // Si tous les voisins ont été traités, calcul du pixel filtré
+        if (threadIdx.x == 3 && threadIdx.y == 3) {
+            image_filtrée[y * largeur + x] = (unsigned char)(somme_pixels / somme_poids);
+        }
     }
 }
 
@@ -48,7 +55,7 @@ void ecrire_BMP(const char* chemin, unsigned char* image, int largeur, int haute
 
     unsigned char header[54] = {'B', 'M', 0, 0, 0, 0, 0, 0, 0, 0, 54, 0, 0, 0, 40, 0, 0, 0, 0, 0, 0, 0, 1, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     
-    unsigned int fileSize = 54 + largeur * hauteur * 3;
+    unsigned int fileSize = 54 + 256 * 4 + largeur * hauteur;
     *(unsigned int*)&header[2] = fileSize;
     *(unsigned int*)&header[18] = largeur;
     *(unsigned int*)&header[22] = hauteur;
@@ -59,8 +66,8 @@ void ecrire_BMP(const char* chemin, unsigned char* image, int largeur, int haute
     fwrite(header, 1, 54, fichier);
 
     for (int i = 0; i < largeur * hauteur; ++i) {
-        unsigned char couleur[3] = {image[i], image[i], image[i]}; // Niveaux de gris
-        fwrite(couleur, 1, 3, fichier);  // 3 octets pour l'image en niveaux de gris
+        unsigned char couleur[4] = {image[i], image[i], image[i], 0};
+        fwrite(couleur, 1, 4, fichier);
     }
 
     fclose(fichier);
@@ -95,8 +102,8 @@ int main() {
 
     cudaMemcpy(d_image, image, largeur * hauteur * sizeof(unsigned char), cudaMemcpyHostToDevice);
 
-    dim3 threadsPerBlock(16, 16);
-    dim3 numBlocks((largeur + 15) / 16, (hauteur + 15) / 16);
+    dim3 threadsPerBlock(7, 7); // Chaque thread dans la fenêtre de 7x7
+    dim3 numBlocks((largeur + 6) / 7, (hauteur + 6) / 7); // Nombre de blocs pour couvrir l'image
     appliquer_filtre_bilateral<<<numBlocks, threadsPerBlock>>>(d_image, d_image_filtrée, largeur, hauteur, 1.0f, 50.0f);
 
     cudaMemcpy(image_filtrée, d_image_filtrée, largeur * hauteur * sizeof(unsigned char), cudaMemcpyDeviceToHost);
