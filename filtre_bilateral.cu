@@ -48,7 +48,7 @@ void ecrire_BMP(const char* chemin, unsigned char* image, int largeur, int haute
 
     unsigned char header[54] = {'B', 'M', 0, 0, 0, 0, 0, 0, 0, 0, 54, 0, 0, 0, 40, 0, 0, 0, 0, 0, 0, 0, 1, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     
-    unsigned int fileSize = 54 + 256 * 4 + largeur * hauteur;
+    unsigned int fileSize = 54 + largeur * hauteur * 3;
     *(unsigned int*)&header[2] = fileSize;
     *(unsigned int*)&header[18] = largeur;
     *(unsigned int*)&header[22] = hauteur;
@@ -59,8 +59,8 @@ void ecrire_BMP(const char* chemin, unsigned char* image, int largeur, int haute
     fwrite(header, 1, 54, fichier);
 
     for (int i = 0; i < largeur * hauteur; ++i) {
-        unsigned char couleur[4] = {image[i], image[i], image[i], 0};
-        fwrite(couleur, 1, 4, fichier);
+        unsigned char couleur[3] = {image[i], image[i], image[i]}; // Niveaux de gris
+        fwrite(couleur, 1, 3, fichier);  // 3 octets pour l'image en niveaux de gris
     }
 
     fclose(fichier);
