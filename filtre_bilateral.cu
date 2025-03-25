@@ -33,13 +33,13 @@ __global__ void appliquer_filtre_bilateral(unsigned char* image, unsigned char* 
                 float poids_intensite = expf(-0.5f * (difference_intensite(image, largeur, hauteur, x, y, x_voisin, y_voisin) / sigma_intensite) * (difference_intensite(image, largeur, hauteur, x, y, x_voisin, y_voisin) / sigma_intensite));
                 float poids = poids_spatial * poids_intensite;
 
-                // Accumulation des poids et des pixels
-                atomicAdd(&somme_poids, poids); 
-                atomicAdd(&somme_pixels, image[y_voisin * largeur + x_voisin] * poids); 
+                // Accumulation des poids et des pixels (en utilisant les variables locales dans chaque thread)
+                somme_poids += poids; 
+                somme_pixels += image[y_voisin * largeur + x_voisin] * poids; 
             }
         }
 
-        // Si tous les voisins ont été traités, calcul du pixel filtré
+        // Si tous les voisins ont été traités, calcul du pixel filtré dans le thread central
         if (threadIdx.x == 3 && threadIdx.y == 3) {
             image_filtrée[y * largeur + x] = (unsigned char)(somme_pixels / somme_poids);
         }
